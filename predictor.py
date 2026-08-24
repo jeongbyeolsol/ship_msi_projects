@@ -1,5 +1,6 @@
 import numpy as np
 
+from model.inference import ModelInference
 # ------------------------------------------------------------
 # NOTE:
 # model/ 내부 구조가 확정되면 실제 inference 클래스를 연결한다.
@@ -10,10 +11,6 @@ import numpy as np
 #
 # ------------------------------------------------------------
 
-try:
-    from model.inference import ModelInference
-except ImportError:
-    ModelInference = None
 
 
 class Predictor:
