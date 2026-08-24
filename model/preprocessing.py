@@ -5,6 +5,8 @@ from typing import Any, Dict
 
 import numpy as np
 
+from .config import DEFAULT_ACCELEROMETER_CLIP_MPS2
+
 
 @dataclass
 class Standardizer:
@@ -176,6 +178,7 @@ class TrajectoryPreprocessor:
     Input:
         6-axis IMU
 
+        accelerometer x/y/z는 ±16 g로 clipping한 뒤,
         각 channel을 train statistics로
         개별 standardization.
 
@@ -187,7 +190,25 @@ class TrajectoryPreprocessor:
 
     def __init__(
         self,
+        accelerometer_clip_mps2: float = (
+            DEFAULT_ACCELEROMETER_CLIP_MPS2
+        ),
     ) -> None:
+
+        if (
+            not np.isscalar(accelerometer_clip_mps2)
+            or not np.isfinite(accelerometer_clip_mps2)
+            or accelerometer_clip_mps2 <= 0
+        ):
+            raise ValueError(
+                "accelerometer_clip_mps2 must be "
+                "a finite number > 0, got "
+                f"{accelerometer_clip_mps2!r}."
+            )
+
+        self.accelerometer_clip_mps2 = float(
+            accelerometer_clip_mps2
+        )
 
         self.input_scaler = (
             Standardizer()
@@ -229,7 +250,9 @@ class TrajectoryPreprocessor:
                 f"(N, C), got {inputs.shape}"
             )
 
-        # IMU 6채널 각각 mean/std 계산
+        inputs = self._clip_inputs(inputs)
+
+        # IMU 6채널 각각 mean/std 계산. Target은 clipping하지 않는다.
         self.input_scaler.fit(
             inputs
         )
@@ -247,10 +270,42 @@ class TrajectoryPreprocessor:
         inputs: np.ndarray,
     ) -> np.ndarray:
 
+        inputs = self._clip_inputs(inputs)
+
         return (
             self.input_scaler
             .transform(inputs)
         )
+
+    def _clip_inputs(
+        self,
+        inputs: np.ndarray,
+    ) -> np.ndarray:
+        """Clip only accelerometer x/y/z; leave gyro channels unchanged."""
+        inputs = np.asarray(
+            inputs,
+            dtype=np.float32,
+        )
+
+        if inputs.ndim < 1 or inputs.shape[-1] < 3:
+            raise ValueError(
+                "inputs must contain at least three "
+                "accelerometer channels on the last axis, "
+                f"got shape {inputs.shape}."
+            )
+
+        if not np.all(np.isfinite(inputs)):
+            raise ValueError(
+                "IMU inputs contain NaN or Inf."
+            )
+
+        clipped = inputs.copy()
+        clipped[..., :3] = np.clip(
+            clipped[..., :3],
+            -self.accelerometer_clip_mps2,
+            self.accelerometer_clip_mps2,
+        )
+        return clipped
 
     def transform_targets(
         self,
@@ -283,6 +338,10 @@ class TrajectoryPreprocessor:
             )
 
         return {
+            "accelerometer_clip_mps2": (
+                self.accelerometer_clip_mps2
+            ),
+
             "input_scaler":
                 self.input_scaler.state_dict(),
 
@@ -296,7 +355,12 @@ class TrajectoryPreprocessor:
         state: Dict[str, Any],
     ) -> "TrajectoryPreprocessor":
 
-        obj = cls()
+        obj = cls(
+            accelerometer_clip_mps2=state.get(
+                "accelerometer_clip_mps2",
+                DEFAULT_ACCELEROMETER_CLIP_MPS2,
+            )
+        )
 
         obj.input_scaler.load_state_dict(
             state[

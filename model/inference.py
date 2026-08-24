@@ -271,6 +271,20 @@ class ModelInference:
     def _validate_contract(
         self,
     ) -> None:
+        if not np.isclose(
+            self.preprocessor.accelerometer_clip_mps2,
+            self.data_config.accelerometer_clip_mps2,
+            rtol=0.0,
+            atol=1e-6,
+        ):
+            raise ValueError(
+                "Checkpoint contract mismatch: preprocessor "
+                "accelerometer clipping limit is "
+                f"{self.preprocessor.accelerometer_clip_mps2} m/s², "
+                "but DataConfig defines "
+                f"{self.data_config.accelerometer_clip_mps2} m/s²."
+            )
+
         if (
             self.model_config.input_channels
             != self.data_config.num_input_channels
@@ -489,6 +503,44 @@ class ModelInference:
     ) -> tuple[int]:
         return (
             self.data_config.prediction_steps,
+        )
+
+    @property
+    def sample_rate_hz(
+        self,
+    ) -> float:
+        return float(
+            self.data_config.sample_rate_hz
+        )
+
+    @property
+    def input_steps(
+        self,
+    ) -> int:
+        return self.data_config.input_steps
+
+    @property
+    def num_input_channels(
+        self,
+    ) -> int:
+        return (
+            self.data_config.num_input_channels
+        )
+
+    @property
+    def prediction_steps(
+        self,
+    ) -> int:
+        return (
+            self.data_config.prediction_steps
+        )
+
+    @property
+    def prediction_seconds(
+        self,
+    ) -> float:
+        return float(
+            self.data_config.prediction_seconds
         )
 
     @property

@@ -73,20 +73,75 @@ def resolve_split_path(
 def load_split_dataframe(
     data_dir: str | Path,
     split: str,
+    config: DataConfig | None = None,
 ) -> pd.DataFrame:
+
+    if config is None:
+        config = DataConfig(
+            data_dir=str(data_dir)
+        )
 
     path = resolve_split_path(
         data_dir,
         split,
     )
 
+    columns = required_dataframe_columns(
+        config
+    )
+
+    numeric_dtypes = {
+        column: np.float32
+        for column in (
+            *config.input_columns,
+            config.target_column,
+        )
+    }
+    numeric_dtypes[
+        config.time_column
+    ] = np.float64
+
     if path.suffix == ".parquet":
-        return pd.read_parquet(
-            path
+        dataframe = pd.read_parquet(
+            path,
+            columns=list(columns),
         )
 
-    return pd.read_csv(
-        path
+        dataframe = dataframe.astype(
+            numeric_dtypes,
+            copy=False,
+        )
+
+        return dataframe.loc[
+            :,
+            list(columns),
+        ]
+
+    dataframe = pd.read_csv(
+        path,
+        usecols=list(columns),
+        dtype=numeric_dtypes,
+    )
+
+    return dataframe.loc[
+        :,
+        list(columns),
+    ]
+
+
+def required_dataframe_columns(
+    config: DataConfig,
+) -> Tuple[str, ...]:
+    """DataConfig에서 학습에 필요한 컬럼을 순서대로 반환한다."""
+    return tuple(
+        dict.fromkeys(
+            (
+                config.scenario_column,
+                config.time_column,
+                *config.input_columns,
+                config.target_column,
+            )
+        )
     )
 
 
@@ -107,12 +162,11 @@ def validate_dataframe_columns(
             "a non-empty column name."
         )
 
-    required = {
-        config.scenario_column,
-        config.time_column,
-        config.target_column,
-        *config.input_columns,
-    }
+    required = set(
+        required_dataframe_columns(
+            config
+        )
+    )
 
     missing = sorted(
         required.difference(
@@ -275,7 +329,11 @@ def fit_preprocessor_from_dataframe(
     )
 
     return (
-        TrajectoryPreprocessor()
+        TrajectoryPreprocessor(
+            accelerometer_clip_mps2=(
+                config.accelerometer_clip_mps2
+            )
+        )
         .fit(
             inputs,
             targets,

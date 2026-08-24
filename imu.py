@@ -44,8 +44,10 @@ class MPU6050:
     GYRO_CONFIG = 0x1B
     ACCEL_XOUT_H = 0x3B
 
-    # ±2 g
-    ACCEL_LSB_PER_G = 16384.0
+    # V17 전체 데이터에서 ±8 g를 넘는 수직 충격이
+    # 관측되었으므로, MPU6050이 지원하는 최대 범위인
+    # ±16 g를 사용해 실제 입력의 포화를 최소화한다.
+    ACCEL_LSB_PER_G = 2048.0
 
     # ±250 deg/s
     GYRO_LSB_PER_DPS = 131.0
@@ -70,11 +72,11 @@ class MPU6050:
             0x00,
         )
 
-        # Accelerometer: ±2 g
+        # Accelerometer: ±16 g (AFS_SEL=3, bits 4:3 = 11)
         self.bus.write_byte_data(
             self.address,
             self.ACCEL_CONFIG,
-            0x00,
+            0x18,
         )
 
         # Gyroscope: ±250 deg/s

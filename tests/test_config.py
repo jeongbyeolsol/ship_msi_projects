@@ -14,6 +14,11 @@ from model.config import (
         (DataConfig, {"history_seconds": 0}, "history_seconds"),
         (DataConfig, {"prediction_seconds": -1}, "prediction_seconds"),
         (DataConfig, {"window_stride_seconds": 0}, "window_stride_seconds"),
+        (
+            DataConfig,
+            {"accelerometer_clip_mps2": 0},
+            "accelerometer_clip_mps2",
+        ),
         (DataConfig, {"input_columns": ()}, "input_columns"),
         (
             ModelConfig,

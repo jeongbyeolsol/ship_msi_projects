@@ -94,6 +94,8 @@ DEVICE=cpu ./exe/run_inference.sh \
 ```
 
 checkpoint 인자는 `MODEL_PATH` 환경 변수로 `main.py`에 전달됩니다.
+시스템 시작 시 checkpoint의 sample rate, 입력 길이, IMU 채널 수,
+예측 길이가 runtime 설정과 다르면 센서 버퍼를 채우기 전에 종료합니다.
 이 스크립트는 MPU6050, GPS, actuator가 연결된 Linux 장비에서 실행해야
 하며 I2C/serial/GPIO 권한이 필요할 수 있습니다. 종료는 `Ctrl+C`를
 사용합니다.

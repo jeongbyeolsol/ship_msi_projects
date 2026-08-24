@@ -104,6 +104,7 @@ def build_dataloaders(
         load_split_dataframe(
             data_config.data_dir,
             "train",
+            config=data_config,
         )
     )
 
@@ -144,6 +145,7 @@ def build_dataloaders(
         load_split_dataframe(
             data_config.data_dir,
             "validation",
+            config=data_config,
         )
     )
 
@@ -247,6 +249,7 @@ def train_one_epoch(
     criterion: nn.Module,
     device: torch.device,
     grad_clip_norm: float,
+    epoch: int,
 ) -> float:
 
     model.train()
@@ -254,7 +257,10 @@ def train_one_epoch(
     total_loss = 0.0
     total_items = 0
 
-    for x, y in loader:
+    for batch_index, (x, y) in enumerate(
+        loader,
+        start=1,
+    ):
 
         x = x.to(
             device,
@@ -279,7 +285,58 @@ def train_one_epoch(
             y,
         )
 
+        if not bool(
+            torch.isfinite(loss).all()
+        ):
+            raise FloatingPointError(
+                "Non-finite training loss "
+                f"at epoch {epoch}, "
+                f"batch {batch_index}: "
+                f"{loss.detach().cpu().tolist()!r}"
+            )
+
         loss.backward()
+
+        named_gradients = [
+            (
+                parameter_name,
+                parameter.grad,
+            )
+            for parameter_name, parameter
+            in model.named_parameters()
+            if parameter.grad is not None
+        ]
+
+        if named_gradients:
+            all_gradients_finite = torch.stack(
+                [
+                    torch.isfinite(
+                        gradient
+                    ).all()
+                    for _, gradient
+                    in named_gradients
+                ]
+            ).all()
+
+            if not bool(all_gradients_finite):
+                non_finite_parameter = next(
+                    parameter_name
+                    for parameter_name, gradient
+                    in named_gradients
+                    if not bool(
+                        torch.isfinite(
+                            gradient
+                        ).all()
+                    )
+                )
+
+                raise FloatingPointError(
+                    "Non-finite gradient "
+                    f"at epoch {epoch}, "
+                    f"batch {batch_index}, "
+                    "parameter "
+                    f"{non_finite_parameter!r}."
+                )
 
         if grad_clip_norm > 0:
 
@@ -324,6 +381,7 @@ def validate(
     device: torch.device,
     preprocessor:
         TrajectoryPreprocessor,
+    epoch: int,
 ) -> Tuple[
     float,
     float,
@@ -361,7 +419,10 @@ def validate(
         )
     )
 
-    for x, y in loader:
+    for batch_index, (x, y) in enumerate(
+        loader,
+        start=1,
+    ):
 
         x = x.to(
             device,
@@ -381,6 +442,16 @@ def validate(
             pred,
             y,
         )
+
+        if not bool(
+            torch.isfinite(loss).all()
+        ):
+            raise FloatingPointError(
+                "Non-finite validation loss "
+                f"at epoch {epoch}, "
+                f"batch {batch_index}: "
+                f"{loss.detach().cpu().tolist()!r}"
+            )
 
         batch_size = (
             x.size(0)
@@ -647,6 +718,7 @@ def run_training(
     )
 
     epochs_without_improvement = 0
+    checkpoint_saved = False
 
     # ========================================================
     # Training loop
@@ -675,6 +747,8 @@ def run_training(
                     train_config
                     .grad_clip_norm
                 ),
+
+                epoch=epoch,
             )
         )
 
@@ -695,6 +769,8 @@ def run_training(
             preprocessor=(
                 preprocessor
             ),
+
+            epoch=epoch,
         )
 
         scheduler.step(
@@ -776,6 +852,14 @@ def run_training(
                 ),
             )
 
+            if not checkpoint_path.is_file():
+                raise RuntimeError(
+                    "Checkpoint save did not create a file "
+                    f"at epoch {epoch}: {checkpoint_path}"
+                )
+
+            checkpoint_saved = True
+
             print(
                 "[Checkpoint] saved: "
                 f"{checkpoint_path}"
@@ -804,6 +888,16 @@ def run_training(
             )
 
             break
+
+    if (
+        not checkpoint_saved
+        or not checkpoint_path.is_file()
+    ):
+        raise RuntimeError(
+            "Training finished without a saved best "
+            "checkpoint. No checkpoint path will be "
+            f"reported as successful: {checkpoint_path}"
+        )
 
     print(
         "[Train] best validation loss: "

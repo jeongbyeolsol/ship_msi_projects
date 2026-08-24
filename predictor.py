@@ -2,6 +2,7 @@ import numpy as np
 
 from model.inference import ModelInference
 
+
 class Predictor:
     """
     선박 운동 예측기의 외부 인터페이스.
@@ -56,6 +57,104 @@ class Predictor:
         self.model = ModelInference(
             checkpoint_path=checkpoint_path
         )
+
+    @property
+    def sample_rate_hz(self):
+        return self.model.sample_rate_hz
+
+    @property
+    def input_steps(self):
+        return self.model.input_steps
+
+    @property
+    def num_input_channels(self):
+        return self.model.num_input_channels
+
+    @property
+    def prediction_steps(self):
+        return self.model.prediction_steps
+
+    @property
+    def prediction_seconds(self):
+        return self.model.prediction_seconds
+
+    def validate_runtime_contract(
+        self,
+        *,
+        sample_rate_hz,
+        input_steps,
+        num_imu_channels,
+        prediction_steps,
+        prediction_seconds,
+    ):
+        """
+        Runtime 설정이 checkpoint의 DataConfig와 일치하는지 검사한다.
+
+        모든 불일치를 한 번에 표시해 시스템 루프 진입 전에
+        설정 문제를 쉽게 확인할 수 있도록 한다.
+        """
+        mismatches = []
+
+        if not np.isclose(
+            sample_rate_hz,
+            self.sample_rate_hz,
+            rtol=0.0,
+            atol=1e-9,
+        ):
+            mismatches.append(
+                "sample_rate_hz: "
+                f"runtime={sample_rate_hz!r}, "
+                f"checkpoint={self.sample_rate_hz!r}"
+            )
+
+        for name, runtime_value, checkpoint_value in (
+            (
+                "input_steps",
+                input_steps,
+                self.input_steps,
+            ),
+            (
+                "IMU channel count",
+                num_imu_channels,
+                self.num_input_channels,
+            ),
+            (
+                "prediction_steps",
+                prediction_steps,
+                self.prediction_steps,
+            ),
+        ):
+            if runtime_value != checkpoint_value:
+                mismatches.append(
+                    f"{name}: "
+                    f"runtime={runtime_value!r}, "
+                    f"checkpoint={checkpoint_value!r}"
+                )
+
+        if not np.isclose(
+            prediction_seconds,
+            self.prediction_seconds,
+            rtol=0.0,
+            atol=1e-9,
+        ):
+            mismatches.append(
+                "prediction horizon seconds: "
+                f"runtime={prediction_seconds!r}, "
+                f"checkpoint={self.prediction_seconds!r}"
+            )
+
+        if mismatches:
+            details = "\n".join(
+                f"- {mismatch}"
+                for mismatch in mismatches
+            )
+            raise ValueError(
+                "Runtime configuration does not match "
+                "the checkpoint DataConfig:\n"
+                f"{details}\n"
+                "Use a checkpoint trained for the runtime "
+                "settings or update main.py configuration."
+            )
 
     def predict(self, imu_window):
         """

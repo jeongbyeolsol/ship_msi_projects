@@ -20,10 +20,25 @@ from gps import GPSSpeedSensor
 # V17 데이터셋의 IMU sampling rate
 SENSOR_SAMPLE_RATE_HZ = 100.0
 SENSOR_PERIOD_SEC = 1.0 / SENSOR_SAMPLE_RATE_HZ
+NUM_IMU_CHANNELS = 6
 
 # 모델 입력 history
 HISTORY_SECONDS = 30.0
-INPUT_STEPS = int(SENSOR_SAMPLE_RATE_HZ * HISTORY_SECONDS)
+INPUT_STEPS = int(
+    round(
+        SENSOR_SAMPLE_RATE_HZ
+        * HISTORY_SECONDS
+    )
+)
+
+# 모델 출력 horizon
+PREDICTION_SECONDS = 15.0
+PREDICTION_STEPS = int(
+    round(
+        SENSOR_SAMPLE_RATE_HZ
+        * PREDICTION_SECONDS
+    )
+)
 
 # Predictor / MPC 제어 갱신 주기
 CONTROL_RATE_HZ = 10.0
@@ -43,7 +58,34 @@ MODEL_PATH = os.getenv(
 )
 
 
-def main():
+def validate_predictor_runtime_contract(
+    predictor,
+):
+    """main.py runtime 상수와 checkpoint 계약을 비교한다."""
+    predictor.validate_runtime_contract(
+        sample_rate_hz=(
+            SENSOR_SAMPLE_RATE_HZ
+        ),
+        input_steps=INPUT_STEPS,
+        num_imu_channels=NUM_IMU_CHANNELS,
+        prediction_steps=PREDICTION_STEPS,
+        prediction_seconds=(
+            PREDICTION_SECONDS
+        ),
+    )
+
+
+class _RuntimeResources:
+    """초기화 도중 실패해도 정리할 수 있도록 생성된 자원을 추적한다."""
+
+    def __init__(self):
+        self.imu_sensor = None
+        self.gps_sensor = None
+        self.actuator = None
+        self.ai_predictor = None
+
+
+def _run_system(resources):
     print("시스템 초기화 중...")
 
     # --------------------------------------------------------
@@ -51,7 +93,8 @@ def main():
     # --------------------------------------------------------
 
     try:
-        imu_sensor = MPU6050()
+        resources.imu_sensor = MPU6050()
+        imu_sensor = resources.imu_sensor
         print("[IMU] MPU6050 초기화 완료")
     except Exception as e:
         print(f"[Error] IMU 초기화 실패: {e}")
@@ -59,10 +102,11 @@ def main():
 
     # GPS 클래스 내부에서 연결 실패를 처리하고
     # 실패 시 speed=0.0 knot를 반환한다.
-    gps_sensor = GPSSpeedSensor(
+    resources.gps_sensor = GPSSpeedSensor(
         port="/dev/ttyUSB0",
         baudrate=9600,
     )
+    gps_sensor = resources.gps_sensor
 
     # 현재 MSI 계산에 사용할 수직 방향 실시간 필터.
     #
@@ -75,12 +119,24 @@ def main():
     # Predictor는 model/ 쪽 inference 코드를 호출하는
     # 얇은 wrapper로 구현할 예정.
     try:
-        ai_predictor = Predictor(
+        resources.ai_predictor = Predictor(
             checkpoint_path=MODEL_PATH
         )
+        ai_predictor = resources.ai_predictor
+
+        validate_predictor_runtime_contract(
+            ai_predictor
+        )
+
+        print(
+            "[Predictor] checkpoint/runtime "
+            "계약 검증 완료"
+        )
     except Exception as e:
-        print(f"[Error] Predictor 초기화 실패: {e}")
-        imu_sensor.close()
+        print(
+            "[Error] Predictor 초기화 또는 "
+            f"runtime 계약 검증 실패: {e}"
+        )
         return
 
     msi_calc = MSICalculator(
@@ -92,11 +148,12 @@ def main():
         control_weight=0.1
     )
 
-    actuator = InterceptorController(
+    resources.actuator = InterceptorController(
         pin=18,
         min_stroke=0.0,
         max_stroke=50.0,
     )
+    actuator = resources.actuator
 
     # --------------------------------------------------------
     # 2. Predictor input buffer
@@ -105,7 +162,7 @@ def main():
     # [ax, ay, az, gx, gy, gz]
     #
     # 전체 shape:
-    # (INPUT_STEPS, 6)
+    # (INPUT_STEPS, NUM_IMU_CHANNELS)
     # = (3000, 6)  # 30 sec @ 100 Hz
     # --------------------------------------------------------
 
@@ -194,9 +251,12 @@ def main():
             )
 
             # 예상되지 않은 IMU 형식은 즉시 탐지
-            if imu_sample.shape != (6,):
+            if imu_sample.shape != (
+                NUM_IMU_CHANNELS,
+            ):
                 raise ValueError(
-                    "read_imu() must return shape (6,), "
+                    "read_imu() must return shape "
+                    f"({NUM_IMU_CHANNELS},), "
                     f"got {imu_sample.shape}"
                 )
 
@@ -432,32 +492,97 @@ def main():
             f"\n[Error] 시스템 오류: {e}"
         )
 
-    finally:
-        # -----------------------------------------------------
-        # Fail-safe shutdown
-        # -----------------------------------------------------
+def _cleanup_resources(resources):
+    """생성에 성공한 자원만 역방향으로 안전하게 정리한다."""
 
+    # 다른 자원을 닫기 전에 actuator를 안전 위치로 이동한다.
+    actuator = resources.actuator
+    if actuator is not None:
         try:
             actuator.emergency_stop()
-        except Exception:
-            pass
+        except Exception as e:
+            print(
+                "[Warning] actuator emergency_stop "
+                f"실패: {e}"
+            )
+            # emergency_stop 도중 오류가 나도 pigpio 연결은
+            # 가능한 범위에서 마지막으로 정리한다.
+            pi = getattr(actuator, "pi", None)
+            if pi is not None:
+                try:
+                    pi.stop()
+                except Exception as stop_error:
+                    print(
+                        "[Warning] actuator pigpio "
+                        f"정리 실패: {stop_error}"
+                    )
 
+    predictor = resources.ai_predictor
+    if predictor is not None:
+        close_predictor = getattr(
+            predictor,
+            "close",
+            None,
+        )
+        if callable(close_predictor):
+            try:
+                close_predictor()
+            except Exception as e:
+                print(
+                    "[Warning] Predictor 정리 실패: "
+                    f"{e}"
+                )
+
+    gps_sensor = resources.gps_sensor
+    if gps_sensor is not None:
+        try:
+            close_gps = getattr(
+                gps_sensor,
+                "close",
+                None,
+            )
+            if callable(close_gps):
+                close_gps()
+            else:
+                serial_port = getattr(
+                    gps_sensor,
+                    "ser",
+                    None,
+                )
+                if serial_port is not None:
+                    serial_port.close()
+        except Exception as e:
+            print(
+                "[Warning] GPS 정리 실패: "
+                f"{e}"
+            )
+
+    imu_sensor = resources.imu_sensor
+    if imu_sensor is not None:
         try:
             imu_sensor.close()
-        except Exception:
-            pass
+        except Exception as e:
+            print(
+                "[Warning] IMU 정리 실패: "
+                f"{e}"
+            )
 
-        # 현재 gps.py에는 close()가 없으므로
-        # serial 객체가 존재하면 직접 닫는다.
-        try:
-            if (
-                hasattr(gps_sensor, "ser")
-                and gps_sensor.ser is not None
-            ):
-                gps_sensor.ser.close()
-        except Exception:
-            pass
 
+def main():
+    resources = _RuntimeResources()
+
+    try:
+        _run_system(resources)
+    except KeyboardInterrupt:
+        print(
+            "\n사용자에 의해 시스템을 종료합니다."
+        )
+    except Exception as e:
+        print(
+            f"\n[Error] 시스템 오류: {e}"
+        )
+    finally:
+        _cleanup_resources(resources)
         print("시스템이 안전하게 종료되었습니다.")
 
 

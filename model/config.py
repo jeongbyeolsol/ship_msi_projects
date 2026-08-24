@@ -14,6 +14,10 @@ IMU_INPUT_COLUMNS: Tuple[str, ...] = (
     "imu_gyro_z_rad_s",
 )
 
+# MPU6050 ±16 g runtime range. Training and inference inputs use the
+# same limit before normalization; prediction targets are not clipped.
+DEFAULT_ACCELEROMETER_CLIP_MPS2 = 16.0 * 9.81
+
 
 def _require_positive_real(
     name: str,
@@ -132,6 +136,11 @@ class DataConfig:
     # 1초 간격으로 새로운 training window 생성.
     window_stride_seconds: float = 1.0
 
+    # First three input channels are accelerometer x/y/z in m/s².
+    accelerometer_clip_mps2: float = (
+        DEFAULT_ACCELEROMETER_CLIP_MPS2
+    )
+
     def __post_init__(self) -> None:
         _require_positive_real(
             "sample_rate_hz",
@@ -150,6 +159,10 @@ class DataConfig:
             (
                 "window_stride_seconds",
                 self.window_stride_seconds,
+            ),
+            (
+                "accelerometer_clip_mps2",
+                self.accelerometer_clip_mps2,
             ),
         ):
             _require_positive_real(

@@ -9,6 +9,8 @@ class InterceptorController:
         self.pin = pin
         self.min_stroke = min_stroke
         self.max_stroke = max_stroke
+        self.pi = None
+        self.hardware_available = False
         
         try:
             self.pi = pigpio.pi()
@@ -18,7 +20,12 @@ class InterceptorController:
             self.hardware_available = True
         except NameError:
             print("[Warning] pigpio가 없어 PWM 제어를 시뮬레이션합니다.")
-            self.hardware_available = False
+        except Exception:
+            # __init__이 실패하면 main에 객체가 할당되지 않으므로,
+            # 여기서 이미 생성된 pigpio 연결을 직접 정리한다.
+            if self.pi is not None:
+                self.pi.stop()
+            raise
 
     def _stroke_to_pwm_duty(self, stroke):
         # 스트로크(0~50mm)를 서보 PWM 펄스폭(500~2500us)으로 선형 맵핑
