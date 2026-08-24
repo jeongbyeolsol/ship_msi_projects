@@ -1,6 +1,146 @@
+from concurrent.futures import Future, ThreadPoolExecutor
+from dataclasses import dataclass
+import time
+
 import numpy as np
 
 from model.inference import ModelInference
+
+
+@dataclass(frozen=True)
+class PredictionResult:
+    """입력 snapshot 시각과 함께 전달되는 비동기 추론 결과."""
+
+    trajectory: np.ndarray
+    input_timestamp: float
+    completed_timestamp: float
+
+    def aligned_trajectory(
+        self,
+        *,
+        now,
+        sample_rate_hz,
+        max_age_seconds,
+    ):
+        """
+        추론 중 이미 지나간 horizon 앞부분을 제거한다.
+
+        허용 age를 넘었거나 전체 horizon이 지난 결과는 빈 배열로
+        반환해 actuator가 오래된 prediction을 사용하지 않게 한다.
+        """
+        age_seconds = max(
+            0.0,
+            float(now) - self.input_timestamp,
+        )
+
+        if age_seconds > max_age_seconds:
+            return np.empty(
+                0,
+                dtype=np.float32,
+            )
+
+        elapsed_steps = int(
+            age_seconds * sample_rate_hz
+        )
+
+        if elapsed_steps >= self.trajectory.size:
+            return np.empty(
+                0,
+                dtype=np.float32,
+            )
+
+        return np.asarray(
+            self.trajectory[elapsed_steps:],
+            dtype=np.float32,
+        ).copy()
+
+
+class AsyncPredictorWorker:
+    """
+    하나의 최신 IMU snapshot만 비동기로 추론한다.
+
+    실행 중인 작업이 있으면 새 요청을 거부해 오래된 요청이 queue에
+    누적되지 않도록 한다. submit()과 poll()은 100 Hz loop를 막지 않는다.
+    """
+
+    def __init__(self, predictor):
+        self.predictor = predictor
+        self._executor = ThreadPoolExecutor(
+            max_workers=1,
+            thread_name_prefix="imu-inference",
+        )
+        self._future: Future | None = None
+        self._closed = False
+
+    def submit(
+        self,
+        imu_window,
+        *,
+        input_timestamp,
+    ):
+        if self._closed:
+            raise RuntimeError(
+                "AsyncPredictorWorker is closed."
+            )
+
+        if self._future is not None:
+            return False
+
+        # deque가 계속 갱신되어도 worker 입력은 변하지 않도록 복제한다.
+        snapshot = np.array(
+            imu_window,
+            dtype=np.float32,
+            copy=True,
+            order="C",
+        )
+
+        self._future = self._executor.submit(
+            self._predict,
+            snapshot,
+            float(input_timestamp),
+        )
+        return True
+
+    def _predict(
+        self,
+        snapshot,
+        input_timestamp,
+    ):
+        trajectory = self.predictor.predict(
+            snapshot
+        )
+        return PredictionResult(
+            trajectory=np.asarray(
+                trajectory,
+                dtype=np.float32,
+            ).reshape(-1),
+            input_timestamp=input_timestamp,
+            completed_timestamp=time.perf_counter(),
+        )
+
+    def poll(self):
+        """완료된 결과만 반환하며 실행 중이면 즉시 None을 반환한다."""
+        future = self._future
+
+        if future is None or not future.done():
+            return None
+
+        self._future = None
+        return future.result()
+
+    @property
+    def busy(self):
+        return self._future is not None
+
+    def close(self):
+        if self._closed:
+            return
+
+        self._closed = True
+        self._executor.shutdown(
+            wait=True,
+            cancel_futures=True,
+        )
 
 
 class Predictor:

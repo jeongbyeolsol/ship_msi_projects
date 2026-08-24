@@ -6,7 +6,7 @@ import numpy as np
 
 from imu import MPU6050
 from filter import RealTimeFilter
-from predictor import Predictor
+from predictor import AsyncPredictorWorker, Predictor
 from msi import MSICalculator
 from mpc import LightMPC
 from controller import InterceptorController
@@ -43,6 +43,9 @@ PREDICTION_STEPS = int(
 # Predictor / MPC 제어 갱신 주기
 CONTROL_RATE_HZ = 10.0
 CONTROL_PERIOD_SEC = 1.0 / CONTROL_RATE_HZ
+
+# 이보다 오래된 prediction은 제어에 사용하지 않는다.
+MAX_PREDICTION_AGE_SEC = 0.5
 
 # GPS는 IMU처럼 100 Hz로 읽을 필요가 없음
 GPS_RATE_HZ = 5.0
@@ -83,6 +86,7 @@ class _RuntimeResources:
         self.gps_sensor = None
         self.actuator = None
         self.ai_predictor = None
+        self.prediction_worker = None
 
 
 def _run_system(resources):
@@ -132,6 +136,15 @@ def _run_system(resources):
             "[Predictor] checkpoint/runtime "
             "계약 검증 완료"
         )
+
+        resources.prediction_worker = (
+            AsyncPredictorWorker(
+                ai_predictor
+            )
+        )
+        prediction_worker = (
+            resources.prediction_worker
+        )
     except Exception as e:
         print(
             "[Error] Predictor 초기화 또는 "
@@ -175,6 +188,7 @@ def _run_system(resources):
         0,
         dtype=np.float32,
     )
+    latest_prediction_result = None
 
     # --------------------------------------------------------
     # 3. Runtime state
@@ -315,6 +329,52 @@ def _run_system(resources):
                 >= CONTROL_PERIOD_SEC
             )
 
+            # 완료 확인은 non-blocking이다. 추론 중 이미 지난
+            # prediction 앞부분은 제거하고, 너무 오래된 결과는 버린다.
+            try:
+                prediction_result = (
+                    prediction_worker.poll()
+                )
+
+                if prediction_result is not None:
+                    latest_prediction_result = (
+                        prediction_result
+                    )
+
+            except Exception as e:
+                print(
+                    "[Warning] Predictor 추론 실패: "
+                    f"{e}"
+                )
+                latest_future_trajectory = np.empty(
+                    0,
+                    dtype=np.float32,
+                )
+                latest_prediction_result = None
+
+            # 최신 결과를 현재 시각에 다시 맞춘다. 동일 결과를
+            # 재사용하는 동안에도 지난 horizon이 계속 제거된다.
+            if latest_prediction_result is not None:
+                latest_future_trajectory = (
+                    latest_prediction_result
+                    .aligned_trajectory(
+                        now=now,
+                        sample_rate_hz=(
+                            SENSOR_SAMPLE_RATE_HZ
+                        ),
+                        max_age_seconds=(
+                            MAX_PREDICTION_AGE_SEC
+                        ),
+                    )
+                )
+
+                if latest_future_trajectory.size == 0:
+                    print(
+                        "[Warning] 최신 prediction이 "
+                        "stale하여 폐기되었습니다."
+                    )
+                    latest_prediction_result = None
+
             if system_active and control_due:
 
                 # deque -> ndarray
@@ -326,42 +386,11 @@ def _run_system(resources):
                     dtype=np.float32,
                 )
 
-                try:
-                    latest_future_trajectory = (
-                        ai_predictor.predict(
-                            imu_window
-                        )
-                    )
-
-                    latest_future_trajectory = (
-                        np.asarray(
-                            latest_future_trajectory,
-                            dtype=np.float32,
-                        ).reshape(-1)
-                    )
-
-                    if not np.all(
-                        np.isfinite(
-                            latest_future_trajectory
-                        )
-                    ):
-                        raise ValueError(
-                            "Predictor output contains "
-                            "NaN or Inf."
-                        )
-
-                except Exception as e:
-                    print(
-                        "[Warning] Predictor 추론 실패: "
-                        f"{e}"
-                    )
-
-                    latest_future_trajectory = (
-                        np.empty(
-                            0,
-                            dtype=np.float32,
-                        )
-                    )
+                # worker가 실행 중이면 새 요청을 queue에 쌓지 않는다.
+                prediction_worker.submit(
+                    imu_window,
+                    input_timestamp=now,
+                )
 
             elif not system_active:
                 # 저속 또는 history 부족 시 미래 예측을
@@ -370,6 +399,7 @@ def _run_system(resources):
                     0,
                     dtype=np.float32,
                 )
+                latest_prediction_result = None
 
             # =================================================
             # 6. MSI update
@@ -518,6 +548,17 @@ def _cleanup_resources(resources):
                     )
 
     predictor = resources.ai_predictor
+
+    prediction_worker = resources.prediction_worker
+    if prediction_worker is not None:
+        try:
+            prediction_worker.close()
+        except Exception as e:
+            print(
+                "[Warning] inference worker 정리 실패: "
+                f"{e}"
+            )
+
     if predictor is not None:
         close_predictor = getattr(
             predictor,
