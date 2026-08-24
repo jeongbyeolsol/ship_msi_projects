@@ -13,18 +13,13 @@ set -euo pipefail
 #   BATCH_SIZE=16
 #   NUM_WORKERS=4
 #   LR=1e-3
+#   PYTHON_BIN=python
 #
 # Example:
 #   BATCH_SIZE=32 EPOCHS=100 ./train_model.sh /data/V17_Synthetic_IMU_Dataset lstm
 
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
-
-# Works both when the script is placed in project root and in project_root/scripts/.
-if [[ -f "${SCRIPT_DIR}/../model/train.py" ]]; then
-    PROJECT_ROOT="$(cd "${SCRIPT_DIR}/.." && pwd)"
-else
-    PROJECT_ROOT="${SCRIPT_DIR}"
-fi
+PROJECT_ROOT="$(cd "${SCRIPT_DIR}/.." && pwd)"
 
 cd "${PROJECT_ROOT}"
 
@@ -35,8 +30,25 @@ EPOCHS="${EPOCHS:-80}"
 BATCH_SIZE="${BATCH_SIZE:-16}"
 NUM_WORKERS="${NUM_WORKERS:-4}"
 LR="${LR:-1e-3}"
+PYTHON_BIN="${PYTHON_BIN:-python}"
+
+if [[ ! -d "${DATA_DIR}" ]]; then
+    echo "[Error] data directory not found: ${DATA_DIR}" >&2
+    exit 1
+fi
+
+if [[ "${MODEL_TYPE}" != "lstm" && "${MODEL_TYPE}" != "mamba" ]]; then
+    echo "[Error] MODEL_TYPE must be 'lstm' or 'mamba': ${MODEL_TYPE}" >&2
+    exit 1
+fi
+
+if ! command -v "${PYTHON_BIN}" >/dev/null 2>&1; then
+    echo "[Error] Python executable not found: ${PYTHON_BIN}" >&2
+    exit 1
+fi
 
 export PYTHONUNBUFFERED=1
+export PYTHONDONTWRITEBYTECODE=1
 
 mkdir -p logs
 
@@ -52,6 +64,7 @@ echo "epochs       : ${EPOCHS}"
 echo "batch size   : ${BATCH_SIZE}"
 echo "num workers  : ${NUM_WORKERS}"
 echo "learning rate: ${LR}"
+echo "python       : ${PYTHON_BIN}"
 echo "log file     : ${LOG_FILE}"
 echo "============================================================"
 
@@ -62,7 +75,7 @@ if command -v nvidia-smi >/dev/null 2>&1; then
     echo "============================================================"
 fi
 
-python -m model.train \
+"${PYTHON_BIN}" -m model.train \
     --data-dir "${DATA_DIR}" \
     --model-type "${MODEL_TYPE}" \
     --epochs "${EPOCHS}" \

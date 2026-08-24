@@ -25,6 +25,7 @@ dependencies:
   - smbus2>=0.4,<1
 
   # Development conveniences
+  - pytest>=8,<9
   - ipykernel>=6.29,<7
   - jupyterlab>=4,<5
 

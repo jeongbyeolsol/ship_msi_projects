@@ -1,3 +1,4 @@
+import os
 import time
 from collections import deque
 
@@ -36,7 +37,10 @@ GPS_PERIOD_SEC = 1.0 / GPS_RATE_HZ
 ACTIVATION_SPEED_KNOTS = 30.0
 
 # Predictor checkpoint
-MODEL_PATH = "model/checkpoints/best.pt"
+MODEL_PATH = os.getenv(
+    "MODEL_PATH",
+    "model/checkpoints/best.pt",
+)
 
 
 def main():
@@ -312,15 +316,27 @@ def main():
             # =================================================
             #
             # Predictor가 준비되어 있으면
-            # 현재 신호 + 미래 trajectory 사용.
+            # 현재 신호 + 필터링된 미래 trajectory 사용.
             #
             # 아니면 현재까지 측정된 데이터만 이용.
+            #
+            # Predictor의 raw 출력은 MPC에 그대로 사용하고,
+            # MSI용 미래 신호만 현재 RealTimeFilter 상태를
+            # 복제한 필터로 처리한다. 원본 필터 상태는
+            # 미래 신호 처리에 의해 변경되지 않는다.
             # =================================================
+
+            future_msi_trajectory = (
+                signal_filter
+                .preview_array(
+                    latest_future_trajectory
+                )
+            )
 
             current_msi, current_msdv = (
                 msi_calc.update_and_calculate_future_msi(
                     current_msi_signal,
-                    latest_future_trajectory,
+                    future_msi_trajectory,
                 )
             )
 

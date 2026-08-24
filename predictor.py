@@ -1,17 +1,6 @@
 import numpy as np
 
 from model.inference import ModelInference
-# ------------------------------------------------------------
-# NOTE:
-# model/ 내부 구조가 확정되면 실제 inference 클래스를 연결한다.
-#
-# 예상 형태:
-#
-# from model.inference import ModelInference
-#
-# ------------------------------------------------------------
-
-
 
 class Predictor:
     """
@@ -40,10 +29,8 @@ class Predictor:
     future_trajectory : np.ndarray
         shape = (H,)
 
-        미래 trajectory.
-
-        정확히 어떤 물리량을 예측할지는 model 설계 단계에서
-        확정한다.
+        미래 true_vertical_specific_force_mps2 trajectory.
+        각 값의 단위는 m/s^2이다.
     """
 
     NUM_IMU_CHANNELS = 6
@@ -66,20 +53,6 @@ class Predictor:
 
         self.checkpoint_path = checkpoint_path
 
-        # ----------------------------------------------------
-        # model/ 구현 전 임시 보호 코드
-        # ----------------------------------------------------
-
-        if ModelInference is None:
-            raise ImportError(
-                "model.inference.ModelInference가 아직 구현되지 않았습니다. "
-                "model/ 구현 후 Predictor와 연결해야 합니다."
-            )
-
-        # ----------------------------------------------------
-        # 실제 모델 inference backend
-        # ----------------------------------------------------
-
         self.model = ModelInference(
             checkpoint_path=checkpoint_path
         )
@@ -96,7 +69,8 @@ class Predictor:
         Returns
         -------
         np.ndarray
-            shape = (H,)
+            Future true_vertical_specific_force_mps2 trajectory,
+            shape = (H,), unit = m/s^2.
         """
 
         # ----------------------------------------------------

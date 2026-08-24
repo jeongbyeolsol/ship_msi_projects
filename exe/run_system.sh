@@ -13,23 +13,8 @@ set -euo pipefail
 # Optional:
 #   PYTHON_BIN=python
 #
-# main.py should read the checkpoint from:
-#
-#   MODEL_PATH = os.getenv(
-#       "MODEL_PATH",
-#       "model/checkpoints/best.pt",
-#   )
-#
-# If main.py still has a hard-coded MODEL_PATH, either apply the one-line
-# change above or use the default model/checkpoints/best.pt path.
-
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
-
-if [[ -f "${SCRIPT_DIR}/../main.py" ]]; then
-    PROJECT_ROOT="$(cd "${SCRIPT_DIR}/.." && pwd)"
-else
-    PROJECT_ROOT="${SCRIPT_DIR}"
-fi
+PROJECT_ROOT="$(cd "${SCRIPT_DIR}/.." && pwd)"
 
 cd "${PROJECT_ROOT}"
 
@@ -46,8 +31,14 @@ if [[ ! -f "main.py" ]]; then
     exit 1
 fi
 
+if ! command -v "${PYTHON_BIN}" >/dev/null 2>&1; then
+    echo "[Error] Python executable not found: ${PYTHON_BIN}" >&2
+    exit 1
+fi
+
 export MODEL_PATH="${CHECKPOINT}"
 export PYTHONUNBUFFERED=1
+export PYTHONDONTWRITEBYTECODE=1
 
 echo "============================================================"
 echo "V17 real-time prediction/control system"

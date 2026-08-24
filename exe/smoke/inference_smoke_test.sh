@@ -17,14 +17,11 @@ set -euo pipefail
 # Optional:
 #   MODEL_TYPE=lstm|mamba
 #   DEVICE=auto|cpu|cuda
+#   SMOKE_ROWS=50000
+#   PYTHON_BIN=python
 
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
-
-if [[ -f "${SCRIPT_DIR}/../model/inference.py" ]]; then
-    PROJECT_ROOT="$(cd "${SCRIPT_DIR}/.." && pwd)"
-else
-    PROJECT_ROOT="${SCRIPT_DIR}"
-fi
+PROJECT_ROOT="$(cd "${SCRIPT_DIR}/../.." && pwd)"
 
 cd "${PROJECT_ROOT}"
 
@@ -32,12 +29,31 @@ DATA_DIR="${1:-${DATA_DIR:-V17_Synthetic_IMU_Dataset}}"
 CHECKPOINT="${2:-${CHECKPOINT_PATH:-model/checkpoints/best.pt}}"
 MODEL_TYPE="${MODEL_TYPE:-lstm}"
 DEVICE="${DEVICE:-auto}"
+SMOKE_ROWS="${SMOKE_ROWS:-50000}"
+PYTHON_BIN="${PYTHON_BIN:-python}"
+
+if [[ ! -d "${DATA_DIR}" ]]; then
+    echo "[Error] data directory not found: ${DATA_DIR}" >&2
+    exit 1
+fi
+
+if [[ "${MODEL_TYPE}" != "lstm" && "${MODEL_TYPE}" != "mamba" ]]; then
+    echo "[Error] MODEL_TYPE must be 'lstm' or 'mamba': ${MODEL_TYPE}" >&2
+    exit 1
+fi
+
+if ! command -v "${PYTHON_BIN}" >/dev/null 2>&1; then
+    echo "[Error] Python executable not found: ${PYTHON_BIN}" >&2
+    exit 1
+fi
 
 export DATA_DIR
 export CHECKPOINT
 export MODEL_TYPE
 export DEVICE
+export SMOKE_ROWS
 export PYTHONUNBUFFERED=1
+export PYTHONDONTWRITEBYTECODE=1
 
 echo "============================================================"
 echo "Inference smoke test"
@@ -46,9 +62,11 @@ echo "data dir     : ${DATA_DIR}"
 echo "checkpoint   : ${CHECKPOINT}"
 echo "model type   : ${MODEL_TYPE}"
 echo "device       : ${DEVICE}"
+echo "CSV row limit: ${SMOKE_ROWS}"
+echo "python       : ${PYTHON_BIN}"
 echo "============================================================"
 
-python - <<'PY'
+"${PYTHON_BIN}" - <<'PY'
 import gc
 import os
 import tempfile
@@ -56,12 +74,15 @@ from dataclasses import replace
 from pathlib import Path
 
 import numpy as np
+import pandas as pd
 import torch
 
 from model.config import DataConfig, ModelConfig
 from model.dataset import (
     fit_preprocessor_from_dataframe,
-    load_split_dataframe,
+    resolve_split_path,
+    sort_and_validate_scenario_timestamps,
+    validate_dataframe_columns,
 )
 from model.inference import ModelInference
 from model.network import build_model
@@ -74,9 +95,26 @@ data_dir = os.environ["DATA_DIR"]
 checkpoint_arg = Path(os.environ["CHECKPOINT"])
 model_type = os.environ["MODEL_TYPE"]
 device = os.environ["DEVICE"]
+max_rows = int(os.environ["SMOKE_ROWS"])
+
+if max_rows <= 0:
+    raise ValueError("SMOKE_ROWS must be > 0.")
 
 print("[1/6] Loading a raw IMU sample from train split...")
-df = load_split_dataframe(data_dir, "train")
+split_path = resolve_split_path(
+    data_dir,
+    "train",
+)
+
+if split_path.suffix == ".csv":
+    df = pd.read_csv(
+        split_path,
+        nrows=max_rows,
+    )
+else:
+    df = pd.read_parquet(
+        split_path
+    ).head(max_rows)
 
 if df.empty:
     raise RuntimeError("Train split is empty.")
@@ -106,14 +144,6 @@ if checkpoint_arg.is_file():
             if k in DataConfig.__dataclass_fields__
         }
     )
-
-    if not isinstance(
-        data_cfg.input_columns,
-        tuple,
-    ):
-        data_cfg.input_columns = tuple(
-            data_cfg.input_columns
-        )
 
 else:
     print(
@@ -156,14 +186,14 @@ else:
         model_cfg
     )
 
-    tmp_dir = Path(
-        tempfile.mkdtemp(
+    temporary_directory = (
+        tempfile.TemporaryDirectory(
             prefix="v17_inference_smoke_"
         )
     )
 
     checkpoint_path = (
-        tmp_dir
+        Path(temporary_directory.name)
         / "random_smoke.pt"
     )
 
@@ -191,16 +221,26 @@ else:
 
 print("[3/6] Selecting one complete raw runtime window...")
 
+validate_dataframe_columns(
+    df,
+    data_cfg,
+)
+
 required_rows = data_cfg.input_steps
 
 sample = None
 
-for _, group in df.groupby(
+for scenario_id, group in df.groupby(
     data_cfg.scenario_column,
     sort=False,
     observed=True,
 ):
     if len(group) >= required_rows:
+        group = sort_and_validate_scenario_timestamps(
+            group,
+            data_cfg,
+            scenario_id,
+        )
         sample = (
             group.loc[
                 :,

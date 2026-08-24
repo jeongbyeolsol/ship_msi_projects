@@ -95,16 +95,24 @@ def validate_dataframe_columns(
     config: DataConfig,
 ) -> None:
 
+    if (
+        not isinstance(
+            config.time_column,
+            str,
+        )
+        or not config.time_column.strip()
+    ):
+        raise ValueError(
+            "DataConfig.time_column must be "
+            "a non-empty column name."
+        )
+
     required = {
         config.scenario_column,
+        config.time_column,
         config.target_column,
         *config.input_columns,
     }
-
-    if config.time_column is not None:
-        required.add(
-            config.time_column
-        )
 
     missing = sorted(
         required.difference(
@@ -118,6 +126,121 @@ def validate_dataframe_columns(
             "required columns: "
             + ", ".join(missing)
         )
+
+
+def sort_and_validate_scenario_timestamps(
+    scenario_df: pd.DataFrame,
+    config: DataConfig,
+    scenario_id: object,
+) -> pd.DataFrame:
+    """
+    Timestamp를 숫자형으로 검증하고 stable sort한다.
+
+    정렬 후 timestamp는 반드시 유한하고 엄격히 증가해야 한다.
+    """
+
+    try:
+        timestamps = pd.to_numeric(
+            scenario_df[
+                config.time_column
+            ],
+            errors="raise",
+        )
+    except (TypeError, ValueError) as exc:
+        raise ValueError(
+            f"Scenario {scenario_id!r} "
+            f"contains a non-numeric timestamp "
+            f"in column {config.time_column!r}."
+        ) from exc
+
+    timestamp_values = timestamps.to_numpy(
+        dtype=np.float64,
+        copy=True,
+    )
+
+    if not np.all(
+        np.isfinite(timestamp_values)
+    ):
+        raise ValueError(
+            f"Scenario {scenario_id!r} "
+            "contains NaN/Inf timestamp "
+            f"in column {config.time_column!r}."
+        )
+
+    # 숫자로 변환한 timestamp를 정렬 키로 사용한다.
+    # kind="stable"은 동일 키의 기존 순서를 보존하지만,
+    # 동일 timestamp 자체는 아래에서 명시적으로 거부한다.
+    scenario_df = (
+        scenario_df
+        .assign(
+            **{
+                config.time_column:
+                    timestamp_values
+            }
+        )
+        .sort_values(
+            config.time_column,
+            kind="stable",
+        )
+    )
+
+    sorted_timestamps = scenario_df[
+        config.time_column
+    ].to_numpy(
+        dtype=np.float64,
+        copy=False,
+    )
+
+    if sorted_timestamps.size < 2:
+        return scenario_df
+
+    deltas = np.diff(
+        sorted_timestamps
+    )
+
+    duplicate_positions = np.flatnonzero(
+        deltas == 0
+    )
+
+    if duplicate_positions.size:
+        position = int(
+            duplicate_positions[0]
+        )
+        timestamp = sorted_timestamps[
+            position
+        ]
+
+        raise ValueError(
+            f"Scenario {scenario_id!r} "
+            "contains duplicate timestamp "
+            f"{timestamp!r} in column "
+            f"{config.time_column!r} "
+            f"at sorted positions {position} "
+            f"and {position + 1}."
+        )
+
+    non_increasing_positions = (
+        np.flatnonzero(
+            deltas < 0
+        )
+    )
+
+    if non_increasing_positions.size:
+        position = int(
+            non_increasing_positions[0]
+        )
+
+        raise ValueError(
+            f"Scenario {scenario_id!r} "
+            "contains non-increasing "
+            f"timestamps in column "
+            f"{config.time_column!r}: "
+            f"{sorted_timestamps[position]!r} "
+            "followed by "
+            f"{sorted_timestamps[position + 1]!r}."
+        )
+
+    return scenario_df
 
 
 def fit_preprocessor_from_dataframe(
@@ -225,21 +348,13 @@ class IMUForecastDataset(
             scenario_df,
         ) in grouped:
 
-            # 데이터에 명시적인 time column을
-            # 지정한 경우에만 정렬.
-            #
-            # 기본값에서는 원래 file row order 유지.
-            if (
-                config.time_column
-                is not None
-            ):
-                scenario_df = (
-                    scenario_df
-                    .sort_values(
-                        config.time_column,
-                        kind="stable",
-                    )
+            scenario_df = (
+                sort_and_validate_scenario_timestamps(
+                    scenario_df,
+                    config,
+                    scenario_id,
                 )
+            )
 
             raw_x = (
                 scenario_df.loc[
