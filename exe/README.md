@@ -52,14 +52,15 @@ MODEL_TYPE=mamba ./exe/train_model.sh V17_Synthetic_IMU_Dataset mamba
 - `BATCH_SIZE`: 기본값 `16`
 - `NUM_WORKERS`: 기본값 `4`
 - `LR`: 기본값 `1e-3`
-- `PREDICTION_SECONDS`: 기본값 `15`
+- `HISTORY_SECONDS`: 기본값 `30`
+- `PREDICTION_SECONDS`: 기본값 `1`
 - `CHECKPOINT_DIR`: 기본값 `model/checkpoints`
-- `CHECKPOINT_NAME`: 기본값 `best.pt`
+- `CHECKPOINT_NAME`: 기본값 `best_1s.pt`
 - `RUN_NAME`: 로그 파일 식별자
 - `PYTHON_BIN`: 기본값 `python`
 
 학습 로그와 checkpoint 경로는 위 환경 변수로 구분할 수 있습니다.
-기본 checkpoint는 `model/checkpoints/best.pt`입니다. Mamba 모델은 현재
+기본 checkpoint는 `model/checkpoints/best_1s.pt`입니다. Mamba 모델은 현재
 PyTorch/CUDA와 호환되는 `mamba-ssm` 패키지를 별도로 설치해야 합니다.
 
 ### 1초/3초 horizon 실험
@@ -80,18 +81,21 @@ PREDICTION_SECONDS=3 CHECKPOINT_NAME=best_3s.pt RUN_NAME=lstm_3s \
 ./exe/compare_horizons.sh validation \
     model/checkpoints/best_1s.pt \
     model/checkpoints/best_3s.pt \
-    model/checkpoints/best.pt
+    model/checkpoints/best_15s.pt
 
 ./exe/compare_horizons.sh test \
     model/checkpoints/best_1s.pt \
     model/checkpoints/best_3s.pt \
-    model/checkpoints/best.pt
+    model/checkpoints/best_15s.pt
 ```
 
 비교기는 가장 긴 모델(여기서는 15초)이 사용할 수 있는 window만 골라
-세 모델을 동일한 입력 시작점에서 평가합니다. 1초/3초 checkpoint는 현재
-15초 runtime 계약과 다르므로 실험이 끝나기 전에는 `run_system.sh`에
-전달하지 마세요.
+세 모델을 동일한 입력 시작점에서 평가합니다.
+
+실시간 시스템은 선택한 checkpoint에서 history와 prediction horizon을
+자동으로 읽습니다. 따라서 1초/3초/15초 checkpoint를 바꿔도
+`main.py`의 시간 상수를 수정할 필요가 없습니다. 단, 모델 출력 길이
+자체는 학습 시 결정되므로 실행 중 임의의 다른 길이로 바꿀 수는 없습니다.
 
 ## 2. 파일 기반 단일 추론
 
@@ -109,7 +113,7 @@ PREDICTION_SECONDS=3 CHECKPOINT_NAME=best_3s.pt RUN_NAME=lstm_3s \
 
 ```bash
 DEVICE=cpu ./exe/run_inference.sh \
-    model/checkpoints/best.pt \
+    model/checkpoints/best_1s.pt \
     sample_window.npy \
     outputs/prediction.csv
 ```
@@ -126,12 +130,13 @@ DEVICE=cpu ./exe/run_inference.sh \
 예시:
 
 ```bash
-./exe/run_system.sh model/checkpoints/best.pt
+./exe/run_system.sh model/checkpoints/best_1s.pt
 ```
 
 checkpoint 인자는 `MODEL_PATH` 환경 변수로 `main.py`에 전달됩니다.
-시스템 시작 시 checkpoint의 sample rate, 입력 길이, IMU 채널 수,
-예측 길이가 runtime 설정과 다르면 센서 버퍼를 채우기 전에 종료합니다.
+history 길이와 prediction horizon은 checkpoint 설정을 그대로 사용합니다.
+시스템 시작 시 checkpoint의 sample rate나 IMU 채널 수가 하드웨어
+runtime과 다르면 센서 버퍼를 채우기 전에 종료합니다.
 이 스크립트는 MPU6050, GPS, actuator가 연결된 Linux 장비에서 실행해야
 하며 I2C/serial/GPIO 권한이 필요할 수 있습니다. 종료는 `Ctrl+C`를
 사용합니다.
@@ -183,7 +188,7 @@ random-weight checkpoint를 만들어 다음 경로를 검사합니다.
 ```bash
 DEVICE=cpu ./exe/smoke/inference_smoke_test.sh \
     V17_Synthetic_IMU_Dataset \
-    model/checkpoints/best.pt
+    model/checkpoints/best_1s.pt
 ```
 
 임시 random-weight checkpoint 사용은 연결 상태만 검증하며 모델 정확도를

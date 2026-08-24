@@ -8,7 +8,7 @@ set -euo pipefail
 #
 # Examples:
 #   ./inference_smoke_test.sh V17_Synthetic_IMU_Dataset
-#   ./inference_smoke_test.sh V17_Synthetic_IMU_Dataset model/checkpoints/best.pt
+#   ./inference_smoke_test.sh V17_Synthetic_IMU_Dataset model/checkpoints/best_1s.pt
 #
 # If CHECKPOINT does not exist, a temporary random-weight checkpoint is
 # generated from the train split. This tests the inference plumbing only,
@@ -26,7 +26,7 @@ PROJECT_ROOT="$(cd "${SCRIPT_DIR}/../.." && pwd)"
 cd "${PROJECT_ROOT}"
 
 DATA_DIR="${1:-${DATA_DIR:-V17_Synthetic_IMU_Dataset}}"
-CHECKPOINT="${2:-${CHECKPOINT_PATH:-model/checkpoints/best.pt}}"
+CHECKPOINT="${2:-${CHECKPOINT_PATH:-model/checkpoints/best_1s.pt}}"
 MODEL_TYPE="${MODEL_TYPE:-lstm}"
 DEVICE="${DEVICE:-auto}"
 SMOKE_ROWS="${SMOKE_ROWS:-50000}"

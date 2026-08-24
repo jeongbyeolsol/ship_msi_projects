@@ -13,10 +13,11 @@ set -euo pipefail
 #   BATCH_SIZE=16
 #   NUM_WORKERS=4
 #   LR=1e-3
-#   PREDICTION_SECONDS=15
+#   HISTORY_SECONDS=30
+#   PREDICTION_SECONDS=1
 #   CHECKPOINT_DIR=model/checkpoints
-#   CHECKPOINT_NAME=best.pt
-#   RUN_NAME=lstm_15s
+#   CHECKPOINT_NAME=best_1s.pt
+#   RUN_NAME=lstm_1s
 #   PYTHON_BIN=python
 #
 # Example:
@@ -34,9 +35,10 @@ EPOCHS="${EPOCHS:-80}"
 BATCH_SIZE="${BATCH_SIZE:-16}"
 NUM_WORKERS="${NUM_WORKERS:-4}"
 LR="${LR:-1e-3}"
-PREDICTION_SECONDS="${PREDICTION_SECONDS:-15}"
+HISTORY_SECONDS="${HISTORY_SECONDS:-30}"
+PREDICTION_SECONDS="${PREDICTION_SECONDS:-1}"
 CHECKPOINT_DIR="${CHECKPOINT_DIR:-model/checkpoints}"
-CHECKPOINT_NAME="${CHECKPOINT_NAME:-best.pt}"
+CHECKPOINT_NAME="${CHECKPOINT_NAME:-best_1s.pt}"
 RUN_NAME="${RUN_NAME:-${MODEL_TYPE}_${PREDICTION_SECONDS}s}"
 PYTHON_BIN="${PYTHON_BIN:-python}"
 
@@ -72,6 +74,7 @@ echo "epochs       : ${EPOCHS}"
 echo "batch size   : ${BATCH_SIZE}"
 echo "num workers  : ${NUM_WORKERS}"
 echo "learning rate: ${LR}"
+echo "history sec  : ${HISTORY_SECONDS}"
 echo "horizon sec  : ${PREDICTION_SECONDS}"
 echo "checkpoint   : ${CHECKPOINT_DIR}/${CHECKPOINT_NAME}"
 echo "python       : ${PYTHON_BIN}"
@@ -92,6 +95,7 @@ fi
     --batch-size "${BATCH_SIZE}" \
     --num-workers "${NUM_WORKERS}" \
     --lr "${LR}" \
+    --history-seconds "${HISTORY_SECONDS}" \
     --prediction-seconds "${PREDICTION_SECONDS}" \
     --checkpoint-dir "${CHECKPOINT_DIR}" \
     --checkpoint-name "${CHECKPOINT_NAME}" \

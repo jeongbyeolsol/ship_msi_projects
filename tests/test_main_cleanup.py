@@ -32,6 +32,10 @@ def test_actuator_initialization_failure_closes_prior_resources(
     class FakePredictor:
         def __init__(self, **kwargs):
             events.append("predictor.init")
+            self.input_steps = 3000
+            self.history_seconds = 30.0
+            self.prediction_steps = 100
+            self.prediction_seconds = 1.0
 
         def validate_runtime_contract(self, **kwargs):
             events.append("predictor.validate")

@@ -520,6 +520,14 @@ class ModelInference:
         return self.data_config.input_steps
 
     @property
+    def history_seconds(
+        self,
+    ) -> float:
+        return float(
+            self.data_config.history_seconds
+        )
+
+    @property
     def num_input_channels(
         self,
     ) -> int:

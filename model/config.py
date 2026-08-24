@@ -130,7 +130,7 @@ class DataConfig:
     sample_rate_hz: int = 100
 
     history_seconds: float = 30.0
-    prediction_seconds: float = 15.0
+    prediction_seconds: float = 1.0
 
     # Sliding-window stride.
     # 1초 간격으로 새로운 training window 생성.
@@ -290,7 +290,7 @@ class ModelConfig:
     model_type: str = "lstm"
 
     input_channels: int = 6
-    output_steps: int = 1500
+    output_steps: int = 100
 
     # --------------------------------------------------------
     # Conv stem
@@ -471,7 +471,7 @@ class TrainConfig:
     early_stopping_patience: int = 12
 
     checkpoint_dir: str = "model/checkpoints"
-    best_checkpoint_name: str = "best.pt"
+    best_checkpoint_name: str = "best_1s.pt"
 
     pin_memory: bool = True
 

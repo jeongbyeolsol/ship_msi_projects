@@ -980,6 +980,13 @@ def parse_args(
     )
 
     parser.add_argument(
+        "--history-seconds",
+        type=float,
+        default=None,
+        help="Past IMU history duration in seconds.",
+    )
+
+    parser.add_argument(
         "--checkpoint-dir",
         type=str,
         default=None,
@@ -1062,6 +1069,12 @@ def main(
             prediction_seconds=(
                 args.prediction_seconds
             ),
+        )
+
+    if args.history_seconds is not None:
+        data_config = replace(
+            data_config,
+            history_seconds=args.history_seconds,
         )
 
     if args.checkpoint_dir is not None:

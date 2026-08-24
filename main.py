@@ -22,24 +22,6 @@ SENSOR_SAMPLE_RATE_HZ = 100.0
 SENSOR_PERIOD_SEC = 1.0 / SENSOR_SAMPLE_RATE_HZ
 NUM_IMU_CHANNELS = 6
 
-# 모델 입력 history
-HISTORY_SECONDS = 30.0
-INPUT_STEPS = int(
-    round(
-        SENSOR_SAMPLE_RATE_HZ
-        * HISTORY_SECONDS
-    )
-)
-
-# 모델 출력 horizon
-PREDICTION_SECONDS = 15.0
-PREDICTION_STEPS = int(
-    round(
-        SENSOR_SAMPLE_RATE_HZ
-        * PREDICTION_SECONDS
-    )
-)
-
 # Predictor / MPC 제어 갱신 주기
 CONTROL_RATE_HZ = 10.0
 CONTROL_PERIOD_SEC = 1.0 / CONTROL_RATE_HZ
@@ -57,23 +39,30 @@ ACTIVATION_SPEED_KNOTS = 30.0
 # Predictor checkpoint
 MODEL_PATH = os.getenv(
     "MODEL_PATH",
-    "model/checkpoints/best.pt",
+    "model/checkpoints/best_1s.pt",
 )
 
 
 def validate_predictor_runtime_contract(
     predictor,
 ):
-    """main.py runtime 상수와 checkpoint 계약을 비교한다."""
+    """
+    하드웨어 고정 계약만 검사한다.
+
+    history와 prediction horizon은 checkpoint에서 읽어 runtime buffer와
+    제어 경로를 구성하므로 checkpoint를 바꿔도 코드 수정이 필요 없다.
+    """
     predictor.validate_runtime_contract(
         sample_rate_hz=(
             SENSOR_SAMPLE_RATE_HZ
         ),
-        input_steps=INPUT_STEPS,
+        input_steps=predictor.input_steps,
         num_imu_channels=NUM_IMU_CHANNELS,
-        prediction_steps=PREDICTION_STEPS,
+        prediction_steps=(
+            predictor.prediction_steps
+        ),
         prediction_seconds=(
-            PREDICTION_SECONDS
+            predictor.prediction_seconds
         ),
     )
 
@@ -152,6 +141,15 @@ def _run_system(resources):
         )
         return
 
+    input_steps = ai_predictor.input_steps
+    history_seconds = ai_predictor.history_seconds
+    prediction_steps = (
+        ai_predictor.prediction_steps
+    )
+    prediction_seconds = (
+        ai_predictor.prediction_seconds
+    )
+
     msi_calc = MSICalculator(
         fs=SENSOR_SAMPLE_RATE_HZ,
         window_minutes=20.0,
@@ -175,12 +173,11 @@ def _run_system(resources):
     # [ax, ay, az, gx, gy, gz]
     #
     # 전체 shape:
-    # (INPUT_STEPS, NUM_IMU_CHANNELS)
-    # = (3000, 6)  # 30 sec @ 100 Hz
+    # (checkpoint input_steps, NUM_IMU_CHANNELS)
     # --------------------------------------------------------
 
     recent_buffer = deque(
-        maxlen=INPUT_STEPS
+        maxlen=input_steps
     )
 
     # 아직 Predictor가 실행되지 않았을 때 사용
@@ -211,8 +208,14 @@ def _run_system(resources):
     )
 
     print(
-        f"Predictor 입력: {HISTORY_SECONDS:.0f}초 "
-        f"({INPUT_STEPS} samples × 6 channels)"
+        f"Predictor 입력: {history_seconds:g}초 "
+        f"({input_steps} samples × "
+        f"{NUM_IMU_CHANNELS} channels)"
+    )
+
+    print(
+        f"Predictor 출력: {prediction_seconds:g}초 "
+        f"({prediction_steps} samples)"
     )
 
     print(
@@ -304,7 +307,7 @@ def _run_system(resources):
             # =================================================
 
             buffer_ready = (
-                len(recent_buffer) == INPUT_STEPS
+                len(recent_buffer) == input_steps
             )
 
             speed_ready = (
@@ -484,7 +487,7 @@ def _run_system(resources):
                     f"[{state}] "
                     f"Speed: {current_speed:5.1f} kn | "
                     f"History: {history_seconds:4.1f}"
-                    f"/{HISTORY_SECONDS:.0f}s | "
+                    f"/{history_seconds:g}s | "
                     f"MSI: {current_msi:6.2f}% | "
                     f"Stroke: {applied_stroke:6.2f} mm"
                 )

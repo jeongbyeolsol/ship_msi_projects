@@ -8,7 +8,7 @@ set -euo pipefail
 #   ./exe/compare_horizons.sh test \
 #       model/checkpoints/best_1s.pt \
 #       model/checkpoints/best_3s.pt \
-#       model/checkpoints/best.pt
+#       model/checkpoints/best_15s.pt
 
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 PROJECT_ROOT="$(cd "${SCRIPT_DIR}/.." && pwd)"

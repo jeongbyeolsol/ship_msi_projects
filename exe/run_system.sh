@@ -8,7 +8,7 @@ set -euo pipefail
 #
 # Examples:
 #   ./run_system.sh
-#   ./run_system.sh model/checkpoints/best.pt
+#   ./run_system.sh model/checkpoints/best_1s.pt
 #
 # Optional:
 #   PYTHON_BIN=python
@@ -18,7 +18,7 @@ PROJECT_ROOT="$(cd "${SCRIPT_DIR}/.." && pwd)"
 
 cd "${PROJECT_ROOT}"
 
-CHECKPOINT="${1:-${MODEL_PATH:-model/checkpoints/best.pt}}"
+CHECKPOINT="${1:-${MODEL_PATH:-model/checkpoints/best_1s.pt}}"
 PYTHON_BIN="${PYTHON_BIN:-python}"
 
 if [[ ! -f "${CHECKPOINT}" ]]; then

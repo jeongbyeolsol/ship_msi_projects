@@ -31,6 +31,9 @@ def test_checkpoint_contract_properties_are_exposed(
         predictor.input_steps
         == tiny_data_config.input_steps
     )
+    assert predictor.history_seconds == pytest.approx(
+        tiny_data_config.history_seconds
+    )
     assert (
         predictor.num_input_channels
         == tiny_data_config.num_input_channels
@@ -114,6 +117,9 @@ def test_main_passes_all_runtime_settings_to_predictor():
     class RecordingPredictor:
         def __init__(self):
             self.received = None
+            self.input_steps = 123
+            self.prediction_steps = 45
+            self.prediction_seconds = 0.45
 
         def validate_runtime_contract(self, **runtime):
             self.received = runtime
@@ -125,28 +131,28 @@ def test_main_passes_all_runtime_settings_to_predictor():
 
     assert predictor.received == {
         "sample_rate_hz": main.SENSOR_SAMPLE_RATE_HZ,
-        "input_steps": main.INPUT_STEPS,
+        "input_steps": predictor.input_steps,
         "num_imu_channels": main.NUM_IMU_CHANNELS,
-        "prediction_steps": main.PREDICTION_STEPS,
-        "prediction_seconds": main.PREDICTION_SECONDS,
+        "prediction_steps": predictor.prediction_steps,
+        "prediction_seconds": predictor.prediction_seconds,
     }
 
 
-def test_main_runtime_constants_match_default_data_config():
+def test_main_hardware_constants_match_default_data_config():
     config = DataConfig()
 
     assert main.SENSOR_SAMPLE_RATE_HZ == pytest.approx(
         config.sample_rate_hz
     )
-    assert main.INPUT_STEPS == config.input_steps
     assert (
         main.NUM_IMU_CHANNELS
         == config.num_input_channels
     )
-    assert (
-        main.PREDICTION_STEPS
-        == config.prediction_steps
-    )
-    assert main.PREDICTION_SECONDS == pytest.approx(
-        config.prediction_seconds
-    )
+
+
+def test_default_project_horizon_is_one_second():
+    config = DataConfig()
+
+    assert config.prediction_seconds == pytest.approx(1.0)
+    assert config.prediction_steps == 100
+    assert main.MODEL_PATH.endswith("best_1s.pt")

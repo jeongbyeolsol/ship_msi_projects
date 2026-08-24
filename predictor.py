@@ -207,6 +207,10 @@ class Predictor:
         return self.model.input_steps
 
     @property
+    def history_seconds(self):
+        return self.model.history_seconds
+
+    @property
     def num_input_channels(self):
         return self.model.num_input_channels
 
