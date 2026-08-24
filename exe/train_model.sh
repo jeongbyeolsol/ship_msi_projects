@@ -13,6 +13,10 @@ set -euo pipefail
 #   BATCH_SIZE=16
 #   NUM_WORKERS=4
 #   LR=1e-3
+#   PREDICTION_SECONDS=15
+#   CHECKPOINT_DIR=model/checkpoints
+#   CHECKPOINT_NAME=best.pt
+#   RUN_NAME=lstm_15s
 #   PYTHON_BIN=python
 #
 # Example:
@@ -30,6 +34,10 @@ EPOCHS="${EPOCHS:-80}"
 BATCH_SIZE="${BATCH_SIZE:-16}"
 NUM_WORKERS="${NUM_WORKERS:-4}"
 LR="${LR:-1e-3}"
+PREDICTION_SECONDS="${PREDICTION_SECONDS:-15}"
+CHECKPOINT_DIR="${CHECKPOINT_DIR:-model/checkpoints}"
+CHECKPOINT_NAME="${CHECKPOINT_NAME:-best.pt}"
+RUN_NAME="${RUN_NAME:-${MODEL_TYPE}_${PREDICTION_SECONDS}s}"
 PYTHON_BIN="${PYTHON_BIN:-python}"
 
 if [[ ! -d "${DATA_DIR}" ]]; then
@@ -53,7 +61,7 @@ export PYTHONDONTWRITEBYTECODE=1
 mkdir -p logs
 
 TIMESTAMP="$(date '+%Y%m%d_%H%M%S')"
-LOG_FILE="logs/train_${MODEL_TYPE}_${TIMESTAMP}.log"
+LOG_FILE="logs/train_${RUN_NAME}_${TIMESTAMP}.log"
 
 echo "============================================================"
 echo "V17 predictor training"
@@ -64,6 +72,8 @@ echo "epochs       : ${EPOCHS}"
 echo "batch size   : ${BATCH_SIZE}"
 echo "num workers  : ${NUM_WORKERS}"
 echo "learning rate: ${LR}"
+echo "horizon sec  : ${PREDICTION_SECONDS}"
+echo "checkpoint   : ${CHECKPOINT_DIR}/${CHECKPOINT_NAME}"
 echo "python       : ${PYTHON_BIN}"
 echo "log file     : ${LOG_FILE}"
 echo "============================================================"
@@ -82,10 +92,13 @@ fi
     --batch-size "${BATCH_SIZE}" \
     --num-workers "${NUM_WORKERS}" \
     --lr "${LR}" \
+    --prediction-seconds "${PREDICTION_SECONDS}" \
+    --checkpoint-dir "${CHECKPOINT_DIR}" \
+    --checkpoint-name "${CHECKPOINT_NAME}" \
     2>&1 | tee "${LOG_FILE}"
 
 echo "============================================================"
 echo "Training finished."
-echo "Best checkpoint should be under: model/checkpoints/best.pt"
+echo "Best checkpoint: ${CHECKPOINT_DIR}/${CHECKPOINT_NAME}"
 echo "Log: ${LOG_FILE}"
 echo "============================================================"

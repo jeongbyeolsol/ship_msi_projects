@@ -972,6 +972,25 @@ def parse_args(
         default=None,
     )
 
+    parser.add_argument(
+        "--prediction-seconds",
+        type=float,
+        default=None,
+        help="Future prediction horizon in seconds.",
+    )
+
+    parser.add_argument(
+        "--checkpoint-dir",
+        type=str,
+        default=None,
+    )
+
+    parser.add_argument(
+        "--checkpoint-name",
+        type=str,
+        default=None,
+    )
+
     return (
         parser.parse_args()
     )
@@ -1035,6 +1054,28 @@ def main(
         train_config = replace(
             train_config,
             learning_rate=args.lr,
+        )
+
+    if args.prediction_seconds is not None:
+        data_config = replace(
+            data_config,
+            prediction_seconds=(
+                args.prediction_seconds
+            ),
+        )
+
+    if args.checkpoint_dir is not None:
+        train_config = replace(
+            train_config,
+            checkpoint_dir=args.checkpoint_dir,
+        )
+
+    if args.checkpoint_name is not None:
+        train_config = replace(
+            train_config,
+            best_checkpoint_name=(
+                args.checkpoint_name
+            ),
         )
 
     run_training(

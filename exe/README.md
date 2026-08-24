@@ -28,6 +28,7 @@ PYTHON_BIN=/path/to/python ./exe/run_tests.sh
 | `run_inference.sh` | 체크포인트와 IMU window 파일로 단일 추론 |
 | `run_system.sh` | 실제 IMU/GPS/actuator를 사용하는 실시간 시스템 실행 |
 | `run_tests.sh` | 빠른 pytest 회귀 테스트 실행 |
+| `compare_horizons.sh` | 여러 checkpoint의 horizon별 MSE 비교 |
 | `smoke/train_smoke_test.sh` | 제한된 실제 데이터로 forward/backward 학습 경로 점검 |
 | `smoke/inference_smoke_test.sh` | 체크포인트 로딩부터 공개 Predictor까지 추론 경로 점검 |
 
@@ -51,11 +52,46 @@ MODEL_TYPE=mamba ./exe/train_model.sh V17_Synthetic_IMU_Dataset mamba
 - `BATCH_SIZE`: 기본값 `16`
 - `NUM_WORKERS`: 기본값 `4`
 - `LR`: 기본값 `1e-3`
+- `PREDICTION_SECONDS`: 기본값 `15`
+- `CHECKPOINT_DIR`: 기본값 `model/checkpoints`
+- `CHECKPOINT_NAME`: 기본값 `best.pt`
+- `RUN_NAME`: 로그 파일 식별자
 - `PYTHON_BIN`: 기본값 `python`
 
-학습 로그는 `logs/train_<model>_<timestamp>.log`, 최적 체크포인트는
-`model/checkpoints/best.pt`에 저장됩니다. Mamba 모델은 현재 PyTorch/CUDA와
-호환되는 `mamba-ssm` 패키지를 별도로 설치해야 합니다.
+학습 로그와 checkpoint 경로는 위 환경 변수로 구분할 수 있습니다.
+기본 checkpoint는 `model/checkpoints/best.pt`입니다. Mamba 모델은 현재
+PyTorch/CUDA와 호환되는 `mamba-ssm` 패키지를 별도로 설치해야 합니다.
+
+### 1초/3초 horizon 실험
+
+기존 15초 checkpoint를 보존하면서 별도 파일로 학습합니다.
+
+```bash
+PREDICTION_SECONDS=1 CHECKPOINT_NAME=best_1s.pt RUN_NAME=lstm_1s \
+    ./exe/train_model.sh V17_Synthetic_IMU_Dataset lstm
+
+PREDICTION_SECONDS=3 CHECKPOINT_NAME=best_3s.pt RUN_NAME=lstm_3s \
+    ./exe/train_model.sh V17_Synthetic_IMU_Dataset lstm
+```
+
+세 모델을 공통 scenario/window에서 비교합니다.
+
+```bash
+./exe/compare_horizons.sh validation \
+    model/checkpoints/best_1s.pt \
+    model/checkpoints/best_3s.pt \
+    model/checkpoints/best.pt
+
+./exe/compare_horizons.sh test \
+    model/checkpoints/best_1s.pt \
+    model/checkpoints/best_3s.pt \
+    model/checkpoints/best.pt
+```
+
+비교기는 가장 긴 모델(여기서는 15초)이 사용할 수 있는 window만 골라
+세 모델을 동일한 입력 시작점에서 평가합니다. 1초/3초 checkpoint는 현재
+15초 runtime 계약과 다르므로 실험이 끝나기 전에는 `run_system.sh`에
+전달하지 마세요.
 
 ## 2. 파일 기반 단일 추론
 
